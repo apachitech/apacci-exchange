@@ -29,7 +29,8 @@ import {
 } from "lucide-react";
 import type { TransactionStatus } from "@/lib/state-machine";
 import { CountryDropdownSelector } from "@/components/admin/CountryDropdownSelector";
-import { getCountryByCode } from "@/lib/country-catalog";
+import { CurrencyDropdownSelector } from "@/components/admin/CurrencyDropdownSelector";
+import { getCountryByCode, getCurrencyByCode } from "@/lib/country-catalog";
 
 interface AdminTx {
   id: string;
@@ -299,6 +300,9 @@ export default function AdminDashboardPage() {
 
   // 6. Corridor Override Create / Edit
   const [showCorridorForm, setShowCorridorForm] = useState(false);
+  const [corridorSearch, setCorridorSearch] = useState("");
+  const [corridorFilter, setCorridorFilter] = useState<"all" | "active" | "inactive">("all");
+  const [corridorInvertInput, setCorridorInvertInput] = useState("");
   const [corridorForm, setCorridorForm] = useState({
     iso_code: "ZA",
     country_name: "Afrique du Sud",
@@ -3095,113 +3099,298 @@ export default function AdminDashboardPage() {
       {/* ===================================================================== */}
       {/* TAB 7: CORRIDORS & EXCHANGE RATES CRUD                                */}
       {/* ===================================================================== */}
-      {tab === "corridors" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-[#0B3D91] dark:text-[#F5B700]">
-                Configuration des Corridors & Taux de Change (1 XOF → Devise)
-              </h2>
-              <p className="text-xs text-slate-500">
-                Activez/désactivez des pays de destination, définissez des taux de change ou marges FX, et documentez les rails de décaissement.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowCorridorForm(!showCorridorForm)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B3D91] px-4 py-2 text-xs font-bold text-white"
-            >
-              <Plus className="h-4 w-4 text-[#F5B700]" />
-              <span>Ajouter / Modifier un Corridor</span>
-            </button>
-          </div>
+      {tab === "corridors" && (() => {
+        const activeCount = corridorOverrides.filter((c) => c.is_enabled).length;
+        const inactiveCount = corridorOverrides.filter((c) => !c.is_enabled).length;
 
-          {showCorridorForm && (
-            <form
-              onSubmit={handleSaveCorridor}
-              className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 dark:border-slate-700 dark:bg-slate-900 space-y-4"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Code ISO-2</label>
-                  <input
-                    type="text"
-                    maxLength={2}
-                    required
-                    value={corridorForm.iso_code}
-                    onChange={(e) =>
-                      setCorridorForm({
-                        ...corridorForm,
-                        iso_code: e.target.value.toUpperCase(),
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono uppercase dark:border-slate-700 dark:bg-slate-800"
-                  />
+        const q = corridorSearch.trim().toLowerCase();
+        const filteredCorridors = corridorOverrides.filter((c) => {
+          const matches =
+            !q ||
+            c.country_name.toLowerCase().includes(q) ||
+            c.iso_code.toLowerCase().includes(q) ||
+            c.currency.toLowerCase().includes(q) ||
+            (c.payout_rail_note && c.payout_rail_note.toLowerCase().includes(q));
+
+          if (!matches) return false;
+          if (corridorFilter === "active") return c.is_enabled;
+          if (corridorFilter === "inactive") return !c.is_enabled;
+          return true;
+        });
+
+        // Live calculation for form simulation
+        const rateNum = parseFloat(corridorForm.custom_rate_from_xof || "1");
+        const spreadNum = parseFloat(corridorForm.fee_spread_percent || "0");
+        const effectiveRate = !isNaN(rateNum) ? rateNum * (1 - (isNaN(spreadNum) ? 0 : spreadNum) / 100) : 1;
+        const simulatedDest = (100_000 * effectiveRate).toLocaleString("fr-FR", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        });
+        const invertedRateStr = !isNaN(rateNum) && rateNum > 0
+          ? (1 / rateNum).toLocaleString("fr-FR", { maximumFractionDigits: 4 })
+          : "—";
+
+        const selectedCountryMeta = getCountryByCode(corridorForm.iso_code);
+        const selectedCurrencyMeta = getCurrencyByCode(corridorForm.currency);
+
+        return (
+          <div className="space-y-5">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-[#0B3D91] dark:text-[#F5B700] flex items-center gap-2">
+                  <Globe2 className="h-5 w-5" />
+                  <span>Configuration des Corridors & Taux de Change (1 XOF → Devise)</span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Activez/désactivez des pays de destination, configurez les taux de change avec sélecteurs de pays et devises, et documentez les rails de décaissement.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!showCorridorForm) {
+                    setCorridorForm({
+                      iso_code: "SN",
+                      country_name: "Sénégal",
+                      currency: "XOF",
+                      custom_rate_from_xof: "1.00000000",
+                      fee_spread_percent: "1.500",
+                      is_enabled: true,
+                      payout_rail_note: "Wave Sénégal, Orange Money SN, Free Money SN",
+                    });
+                  }
+                  setShowCorridorForm(!showCorridorForm);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B3D91] px-4 py-2 text-xs font-bold text-white hover:bg-[#0B3D91]/90 shadow-xs transition"
+              >
+                <Plus className={`h-4 w-4 text-[#F5B700] transition-transform ${showCorridorForm ? "rotate-45" : ""}`} />
+                <span>{showCorridorForm ? "Fermer le Formulaire" : "Ajouter un Corridor"}</span>
+              </button>
+            </div>
+
+            {/* Corridor Create / Edit Form */}
+            {showCorridorForm && (
+              <form
+                onSubmit={handleSaveCorridor}
+                className="rounded-3xl border border-blue-200 bg-blue-50/50 p-6 dark:border-slate-700 dark:bg-slate-900 shadow-sm space-y-5 animate-in fade-in-50 duration-150"
+              >
+                <div className="flex items-center justify-between border-b border-blue-200/60 pb-3 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{selectedCountryMeta.flag}</span>
+                    <div>
+                      <h3 className="text-sm font-bold text-[#0B3D91] dark:text-[#F5B700]">
+                        {corridorForm.country_name
+                          ? `Configuration : ${corridorForm.country_name} (${corridorForm.iso_code})`
+                          : "Nouveau Corridor International"}
+                      </h3>
+                      <p className="text-[11px] text-slate-500 font-mono">
+                        Devise pivot émetteur : XOF (Côte d&apos;Ivoire)
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                      corridorForm.is_enabled
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400"
+                        : "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400"
+                    }`}
+                  >
+                    {corridorForm.is_enabled ? "STATUT : ACTIF" : "STATUT : INACTIF"}
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Nom du Pays</label>
-                  <input
-                    type="text"
-                    required
-                    value={corridorForm.country_name}
-                    onChange={(e) =>
-                      setCorridorForm({
-                        ...corridorForm,
-                        country_name: e.target.value,
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800"
-                  />
+
+                {/* Country & Currency Dropdown Selectors */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Country Dropdown */}
+                  <div>
+                    <CountryDropdownSelector
+                      label="Pays de Destination"
+                      value={corridorForm.iso_code}
+                      onChange={(code, curr) => {
+                        const meta = getCountryByCode(code);
+                        setCorridorForm({
+                          ...corridorForm,
+                          iso_code: meta.code,
+                          country_name: meta.name,
+                          currency: curr || meta.currency,
+                          custom_rate_from_xof: meta.defaultRateFromXof || "1.00000000",
+                          payout_rail_note: meta.defaultPayoutRails || corridorForm.payout_rail_note,
+                        });
+                      }}
+                      onSelectCountry={(meta) => {
+                        setCorridorForm({
+                          ...corridorForm,
+                          iso_code: meta.code,
+                          country_name: meta.name,
+                          currency: meta.currency,
+                          custom_rate_from_xof: meta.defaultRateFromXof || "1.00000000",
+                          payout_rail_note: meta.defaultPayoutRails || corridorForm.payout_rail_note,
+                        });
+                      }}
+                    />
+                  </div>
+
+                  {/* Currency Dropdown */}
+                  <div>
+                    <CurrencyDropdownSelector
+                      label="Devise de Réception"
+                      value={corridorForm.currency}
+                      onChange={(currCode) => {
+                        setCorridorForm({
+                          ...corridorForm,
+                          currency: currCode,
+                        });
+                      }}
+                    />
+                  </div>
+
+                  {/* Status Toggle */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Disponibilité du Corridor
+                    </label>
+                    <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-300 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+                      <button
+                        type="button"
+                        onClick={() => setCorridorForm({ ...corridorForm, is_enabled: true })}
+                        className={`rounded-lg py-1.5 text-xs font-bold transition ${
+                          corridorForm.is_enabled
+                            ? "bg-emerald-600 text-white shadow-xs"
+                            : "text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                        }`}
+                      >
+                        Actif
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCorridorForm({ ...corridorForm, is_enabled: false })}
+                        className={`rounded-lg py-1.5 text-xs font-bold transition ${
+                          !corridorForm.is_enabled
+                            ? "bg-amber-600 text-white shadow-xs"
+                            : "text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                        }`}
+                      >
+                        Inactif
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Devise (ISO-3)</label>
-                  <input
-                    type="text"
-                    maxLength={3}
-                    required
-                    value={corridorForm.currency}
-                    onChange={(e) =>
-                      setCorridorForm({
-                        ...corridorForm,
-                        currency: e.target.value.toUpperCase(),
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono uppercase dark:border-slate-700 dark:bg-slate-800"
-                  />
+
+                {/* Rates & FX Spread Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Exchange Rate Input + Invert Tool */}
+                  <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Taux Direct (1 XOF = ? {corridorForm.currency})
+                      </label>
+                      <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                        1 {corridorForm.currency} ≈ {invertedRateStr} XOF
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        value={corridorForm.custom_rate_from_xof}
+                        onChange={(e) =>
+                          setCorridorForm({
+                            ...corridorForm,
+                            custom_rate_from_xof: e.target.value,
+                          })
+                        }
+                        placeholder="1.00000000"
+                        className="w-full rounded-xl border border-slate-300 bg-slate-50/70 px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:border-[#0B3D91] focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">
+                        {corridorForm.currency}
+                      </span>
+                    </div>
+
+                    {/* Invert Rate Helper */}
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-800/40 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                        <span>Calculer depuis : 1 {corridorForm.currency} = ? XOF</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={corridorInvertInput}
+                          onChange={(e) => setCorridorInvertInput(e.target.value)}
+                          placeholder={`ex: 655.957 ou 605`}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-mono text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const val = parseFloat(corridorInvertInput.replace(",", "."));
+                            if (!isNaN(val) && val > 0) {
+                              setCorridorForm({
+                                ...corridorForm,
+                                custom_rate_from_xof: (1 / val).toFixed(8),
+                              });
+                            }
+                          }}
+                          className="shrink-0 rounded-lg bg-[#0B3D91] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#0B3D91]/90"
+                        >
+                          Appliquer l&apos;inverse
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FX Spread Input + Shortcuts */}
+                  <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Marge / Spread FX appliqué (%)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={corridorForm.fee_spread_percent}
+                        onChange={(e) =>
+                          setCorridorForm({
+                            ...corridorForm,
+                            fee_spread_percent: e.target.value,
+                          })
+                        }
+                        placeholder="1.500"
+                        className="w-full rounded-xl border border-slate-300 bg-slate-50/70 px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:border-[#0B3D91] focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">
+                        %
+                      </span>
+                    </div>
+
+                    {/* Quick Spread Chips */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                        Paliers :
+                      </span>
+                      {["0.000", "0.500", "1.000", "1.500", "2.000", "2.500", "3.000"].map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setCorridorForm({ ...corridorForm, fee_spread_percent: s })}
+                          className={`rounded-lg border px-2 py-0.5 text-[11px] font-mono transition ${
+                            corridorForm.fee_spread_percent === s
+                              ? "border-[#0B3D91] bg-blue-50 font-bold text-[#0B3D91] dark:border-[#F5B700] dark:bg-blue-950/60 dark:text-[#F5B700]"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                          }`}
+                        >
+                          {s}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">
-                    Taux (1 XOF = ? Devise)
+
+                {/* Rails de Décaissement */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Rails & Réseaux de Décaissement (Mobile Money / Banques)
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={corridorForm.custom_rate_from_xof}
-                    onChange={(e) =>
-                      setCorridorForm({
-                        ...corridorForm,
-                        custom_rate_from_xof: e.target.value,
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Spread FX (%)</label>
-                  <input
-                    type="text"
-                    value={corridorForm.fee_spread_percent}
-                    onChange={(e) =>
-                      setCorridorForm({
-                        ...corridorForm,
-                        fee_spread_percent: e.target.value,
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Note Rail Payout</label>
                   <input
                     type="text"
                     value={corridorForm.payout_rail_note}
@@ -3211,108 +3400,270 @@ export default function AdminDashboardPage() {
                         payout_rail_note: e.target.value,
                       })
                     }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="ex: Wave CI, Orange Money CI, MTN MoMo, Moov Money"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-[#0B3D91] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                   />
+                  {selectedCountryMeta.defaultPayoutRails && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <span className="font-semibold text-slate-400">Suggéré :</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCorridorForm({
+                            ...corridorForm,
+                            payout_rail_note: selectedCountryMeta.defaultPayoutRails || "",
+                          })
+                        }
+                        className="text-[#0B3D91] underline hover:text-[#0B3D91]/80 dark:text-[#F5B700]"
+                      >
+                        Rétablir les réseaux recommandés pour {selectedCountryMeta.name}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="rounded-xl bg-[#0B3D91] px-4 py-2 text-xs font-bold text-white"
-                >
-                  Enregistrer le Corridor
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCorridorForm(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-semibold"
-                >
-                  Annuler
-                </button>
-              </div>
-            </form>
-          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {corridorOverrides.map((c) => (
-              <div
-                key={c.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 flex flex-col justify-between gap-3"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-extrabold text-[#0B3D91] dark:text-[#F5B700]">
-                      CI (XOF) → {c.country_name} ({c.iso_code} • {c.currency})
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                        c.is_enabled
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {c.is_enabled ? "ACTIF" : "INACTIF"}
+                {/* Live Simulation Card */}
+                <div className="rounded-2xl border border-blue-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/60 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <span>Simulation de Taux Net pour le Client</span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Spread FX : {corridorForm.fee_spread_percent}%
                     </span>
                   </div>
-                  <p className="text-xs font-mono">
-                    1 XOF = <strong>{c.custom_rate_from_xof}</strong> {c.currency} (Spread:{" "}
-                    {c.fee_spread_percent}%)
-                  </p>
-                  <p className="text-[11px] text-slate-500">{c.payout_rail_note}</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs bg-slate-50 p-3 rounded-xl dark:bg-slate-800/40">
+                    <div>
+                      <p className="text-slate-500 text-[11px]">Envoi de référence :</p>
+                      <p className="font-bold text-slate-900 dark:text-white font-mono text-sm">
+                        100 000 XOF
+                      </p>
+                    </div>
+                    <div className="text-center font-bold text-[#0B3D91] dark:text-[#F5B700]">
+                      →
+                    </div>
+                    <div>
+                      <p className="text-slate-500 text-[11px]">Le bénéficiaire reçoit environ :</p>
+                      <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
+                        ~{simulatedDest} {selectedCurrencyMeta.code} ({selectedCurrencyMeta.symbol})
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                {/* Form Buttons */}
+                <div className="flex items-center gap-3 pt-2">
                   <button
-                    type="button"
-                    onClick={() =>
-                      postAdminAction(
-                        {
-                          action: "upsert_corridor",
-                          payload: { ...c, is_enabled: !c.is_enabled },
-                        },
-                        `Corridor ${c.iso_code} ${!c.is_enabled ? "activé" : "désactivé"}.`
-                      )
-                    }
-                    className="rounded-xl border border-slate-300 px-3 py-1 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700"
+                    type="submit"
+                    className="rounded-xl bg-[#0B3D91] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#0B3D91]/90 shadow-xs"
                   >
-                    {c.is_enabled ? "Désactiver" : "Activer"}
+                    Enregistrer le Corridor {corridorForm.iso_code}
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setCorridorForm({
-                        iso_code: c.iso_code,
-                        country_name: c.country_name,
-                        currency: c.currency,
-                        custom_rate_from_xof: c.custom_rate_from_xof,
-                        fee_spread_percent: c.fee_spread_percent,
-                        is_enabled: c.is_enabled,
-                        payout_rail_note: c.payout_rail_note,
-                      });
-                      setShowCorridorForm(true);
-                    }}
-                    className="rounded-xl border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-100"
+                    onClick={() => setShowCorridorForm(false)}
+                    className="rounded-xl border border-slate-300 px-4 py-2.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
                   >
-                    <Edit3 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      postAdminAction(
-                        { action: "delete_corridor", corridorId: c.id },
-                        `Corridor ${c.iso_code} supprimé.`
-                      )
-                    }
-                    className="ml-auto rounded-xl border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    Annuler
                   </button>
                 </div>
+              </form>
+            )}
+
+            {/* Corridors Search & Filter Bar */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={corridorSearch}
+                  onChange={(e) => setCorridorSearch(e.target.value)}
+                  placeholder="Filtrer les corridors par pays, code ISO ou devise..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/60 pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-[#0B3D91] focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
               </div>
-            ))}
+
+              <div className="flex items-center gap-1.5">
+                {[
+                  { id: "all", label: `Tous (${corridorOverrides.length})` },
+                  { id: "active", label: `Actifs (${activeCount})` },
+                  { id: "inactive", label: `Inactifs (${inactiveCount})` },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setCorridorFilter(item.id as "all" | "active" | "inactive")}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                      corridorFilter === item.id
+                        ? "bg-[#0B3D91] text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Corridors Grid */}
+            {filteredCorridors.length === 0 ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+                <Globe2 className="mx-auto mb-2 h-6 w-6 text-slate-400" />
+                <p className="font-semibold">Aucun corridor ne correspond à vos critères.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredCorridors.map((c) => {
+                  const countryMeta = getCountryByCode(c.iso_code);
+                  const currencyMeta = getCurrencyByCode(c.currency);
+                  const cRate = parseFloat(c.custom_rate_from_xof || "1");
+                  const cSpread = parseFloat(c.fee_spread_percent || "0");
+                  const cEffective = !isNaN(cRate) ? cRate * (1 - (isNaN(cSpread) ? 0 : cSpread) / 100) : 1;
+                  const preview100k = (100_000 * cEffective).toLocaleString("fr-FR", {
+                    maximumFractionDigits: 2,
+                  });
+                  const cInverted = !isNaN(cRate) && cRate > 0
+                    ? (1 / cRate).toLocaleString("fr-FR", { maximumFractionDigits: 4 })
+                    : "—";
+
+                  return (
+                    <div
+                      key={c.id}
+                      className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 shadow-xs flex flex-col justify-between gap-4 hover:border-slate-300 dark:hover:border-slate-700 transition"
+                    >
+                      <div className="space-y-3">
+                        {/* Card Header */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-2xl leading-none select-none">
+                              {countryMeta.flag}
+                            </span>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                  {c.country_name}
+                                </span>
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-mono font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                  {c.iso_code}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                Corridor : CI (XOF) → {c.iso_code} ({c.currency})
+                              </p>
+                            </div>
+                          </div>
+
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                              c.is_enabled
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                            }`}
+                          >
+                            {c.is_enabled ? "ACTIF" : "INACTIF"}
+                          </span>
+                        </div>
+
+                        {/* Rates Details */}
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 text-xs dark:border-slate-800 dark:bg-slate-800/40 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Taux direct appliqué :</span>
+                            <span className="font-mono font-bold text-[#0B3D91] dark:text-[#F5B700]">
+                              1 XOF = {c.custom_rate_from_xof} {c.currency}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-400">Taux inverse indicatif :</span>
+                            <span className="font-mono text-slate-600 dark:text-slate-300">
+                              1 {c.currency} ≈ {cInverted} XOF
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-400">Marge FX (Spread) :</span>
+                            <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                              {c.fee_spread_percent}%
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-200/60 dark:border-slate-700/60 font-semibold">
+                            <span className="text-slate-500">Exemple : 100 000 XOF donne :</span>
+                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              ~{preview100k} {c.currency}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Rails note */}
+                        {c.payout_rail_note && (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-start gap-1.5">
+                            <span className="font-semibold text-slate-400 shrink-0">Rails :</span>
+                            <span className="truncate">{c.payout_rail_note}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Card Footer Actions */}
+                      <div className="flex items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            postAdminAction(
+                              {
+                                action: "upsert_corridor",
+                                payload: { ...c, is_enabled: !c.is_enabled },
+                              },
+                              `Corridor ${c.iso_code} ${!c.is_enabled ? "activé" : "désactivé"}.`
+                            )
+                          }
+                          className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                            c.is_enabled
+                              ? "border border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                              : "border border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                          }`}
+                        >
+                          {c.is_enabled ? "Désactiver" : "Activer"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCorridorForm({
+                              iso_code: c.iso_code,
+                              country_name: c.country_name,
+                              currency: c.currency,
+                              custom_rate_from_xof: c.custom_rate_from_xof,
+                              fee_spread_percent: c.fee_spread_percent,
+                              is_enabled: c.is_enabled,
+                              payout_rail_note: c.payout_rail_note,
+                            });
+                            setShowCorridorForm(true);
+                            window.scrollTo({ top: 300, behavior: "smooth" });
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          <span>Modifier</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            postAdminAction(
+                              { action: "delete_corridor", corridorId: c.id },
+                              `Corridor ${c.iso_code} supprimé.`
+                            )
+                          }
+                          className="ml-auto inline-flex items-center gap-1 rounded-xl border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50 dark:border-rose-900/60 dark:hover:bg-rose-950/40"
+                          title="Supprimer ce corridor"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ===================================================================== */}
       {/* TAB 8: GLOBAL SETTINGS (`settings`)                                   */}

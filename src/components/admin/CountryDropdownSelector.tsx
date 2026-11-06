@@ -21,6 +21,7 @@ interface CountryDropdownSelectorProps {
   label: string;
   value: string;
   onChange: (code: string, currency: string) => void;
+  onSelectCountry?: (country: CountryMeta) => void;
   disabledCode?: string;
   balances?: BalancePreviewInfo[];
   disabled?: boolean;
@@ -31,6 +32,7 @@ export function CountryDropdownSelector({
   label,
   value,
   onChange,
+  onSelectCountry,
   disabledCode,
   balances = [],
   disabled = false,
@@ -229,6 +231,7 @@ export function CountryDropdownSelector({
                         type="button"
                         onClick={() => {
                           onChange(c.code, c.currency);
+                          if (onSelectCountry) onSelectCountry(c);
                           setIsOpen(false);
                           setSearch("");
                         }}
@@ -306,6 +309,7 @@ export function CountryDropdownSelector({
                         type="button"
                         onClick={() => {
                           onChange(c.code, c.currency);
+                          if (onSelectCountry) onSelectCountry(c);
                           setIsOpen(false);
                           setSearch("");
                         }}
@@ -364,3 +368,4 @@ export function CountryDropdownSelector({
     </div>
   );
 }
+
