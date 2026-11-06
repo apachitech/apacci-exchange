@@ -25,8 +25,11 @@ import {
   Eye,
   X,
   Maximize2,
+  AlertTriangle,
 } from "lucide-react";
 import type { TransactionStatus } from "@/lib/state-machine";
+import { CountryDropdownSelector } from "@/components/admin/CountryDropdownSelector";
+import { getCountryByCode } from "@/lib/country-catalog";
 
 interface AdminTx {
   id: string;
@@ -2337,36 +2340,19 @@ export default function AdminDashboardPage() {
                   : "Ajouter un nouveau Wallet Pays"}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Pays (ISO-2)</label>
-                  <input
-                    type="text"
-                    maxLength={2}
-                    required
+                <div className="sm:col-span-2">
+                  <CountryDropdownSelector
+                    label="Pays & Devise du Portefeuille"
                     value={walletForm.country}
-                    onChange={(e) =>
+                    onChange={(code, currency) =>
                       setWalletForm({
                         ...walletForm,
-                        country: e.target.value.toUpperCase(),
+                        country: code,
+                        currency: currency,
                       })
                     }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono uppercase dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1">Devise (ISO-3)</label>
-                  <input
-                    type="text"
-                    maxLength={3}
-                    required
-                    value={walletForm.currency}
-                    onChange={(e) =>
-                      setWalletForm({
-                        ...walletForm,
-                        currency: e.target.value.toUpperCase(),
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono uppercase dark:border-slate-700 dark:bg-slate-800"
+                    disabled={Boolean(editingWalletId)}
+                    balances={balances}
                   />
                 </div>
                 <div>
@@ -2510,58 +2496,315 @@ export default function AdminDashboardPage() {
 
           {/* Inter-Wallet Transfer Form & Ledger */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <form
-              onSubmit={handleWalletTransfer}
-              className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 space-y-4"
-            >
-              <div className="flex items-center gap-2">
-                <ArrowRightLeft className="h-5 w-5 text-[#0B3D91] dark:text-[#F5B700]" />
-                <h3 className="text-sm font-bold text-[#0B3D91] dark:text-[#F5B700]">
-                  Transfert Inter-Wallets SasPay (POST /wallet-transfers/)
-                </h3>
-              </div>
-              <p className="text-xs text-slate-500">
-                Déplacez des liquidités entre vos portefeuilles pays avec en-tête{" "}
-                <code className="font-mono">Idempotency-Key</code> et montant en chaîne décimale.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Pays Source</label>
-                  <input
-                    type="text"
-                    maxLength={2}
-                    value={walletSource}
-                    onChange={(e) => setWalletSource(e.target.value.toUpperCase())}
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono uppercase dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Pays Destination</label>
-                  <input
-                    type="text"
-                    maxLength={2}
-                    value={walletDest}
-                    onChange={(e) => setWalletDest(e.target.value.toUpperCase())}
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono uppercase dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Montant Décimal</label>
-                  <input
-                    type="text"
-                    value={walletAmount}
-                    onChange={(e) => setWalletAmount(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-              </div>
-              <button
-                type="submit"
-                className="rounded-xl bg-[#0B3D91] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#0B3D91]/90"
-              >
-                Exécuter le transfert inter-wallet
-              </button>
-            </form>
+            {/* Inter-Wallet Transfer Form with Dropdown Menu Country Selector */}
+            {(() => {
+              const sourceWallet = balances.find(
+                (b) => b.country.toUpperCase() === walletSource.toUpperCase()
+              );
+              const destWallet = balances.find(
+                (b) => b.country.toUpperCase() === walletDest.toUpperCase()
+              );
+              const sourceMeta = getCountryByCode(walletSource);
+              const destMeta = getCountryByCode(walletDest);
+              const isSameCountry =
+                walletSource.toUpperCase() === walletDest.toUpperCase();
+              const sourceAmountNum = parseFloat(walletAmount || "0");
+              const sourceAvailableNum = sourceWallet
+                ? parseFloat(sourceWallet.available_amount || "0")
+                : 0;
+              const isInsufficientBalance = Boolean(
+                sourceWallet &&
+                  !isNaN(sourceAmountNum) &&
+                  sourceAmountNum > sourceAvailableNum
+              );
+              const isSourceFrozen = Boolean(sourceWallet?.is_frozen);
+
+              const formatBalance = (val: string | number) => {
+                const num = typeof val === "number" ? val : parseFloat(val);
+                if (isNaN(num)) return String(val);
+                return new Intl.NumberFormat("fr-FR", {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2,
+                }).format(num);
+              };
+
+              return (
+                <form
+                  onSubmit={handleWalletTransfer}
+                  className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 space-y-5"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-[#0B3D91] dark:bg-blue-950/60 dark:text-[#F5B700]">
+                        <ArrowRightLeft className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-[#0B3D91] dark:text-[#F5B700]">
+                          Transfert Inter-Wallets SasPay
+                        </h3>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          POST /wallet-transfers/ • Idempotency-Key
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-mono font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      Multi-Devises
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Déplacez instantanément des liquidités opérationnelles entre deux portefeuilles pays via l&apos;API SasPay.
+                  </p>
+
+                  {/* Dropdown Menu Country Selectors + Swap Button */}
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr,auto,1fr] gap-3 items-end">
+                    <CountryDropdownSelector
+                      label="Portefeuille Source (Débit)"
+                      value={walletSource}
+                      onChange={(code) => setWalletSource(code)}
+                      disabledCode={walletDest}
+                      balances={balances}
+                    />
+
+                    <div className="flex justify-center pb-0.5">
+                      <button
+                        type="button"
+                        title="Inverser Source et Destination"
+                        onClick={() => {
+                          const temp = walletSource;
+                          setWalletSource(walletDest);
+                          setWalletDest(temp);
+                        }}
+                        className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600 hover:border-[#0B3D91] hover:bg-blue-50 hover:text-[#0B3D91] transition-all dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-[#F5B700] dark:hover:text-[#F5B700] shadow-xs active:scale-95"
+                      >
+                        <ArrowRightLeft className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <CountryDropdownSelector
+                      label="Portefeuille Destination (Crédit)"
+                      value={walletDest}
+                      onChange={(code) => setWalletDest(code)}
+                      disabledCode={walletSource}
+                      balances={balances}
+                    />
+                  </div>
+
+                  {/* Amount Input with Shortcuts */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Montant du Transfert (Chaîne décimale)
+                      </label>
+                      {sourceWallet && (
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Disponible :{" "}
+                          <strong className="text-emerald-600 dark:text-emerald-400 font-mono">
+                            {formatBalance(sourceWallet.available_amount)}{" "}
+                            {sourceWallet.currency}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        value={walletAmount}
+                        onChange={(e) => setWalletAmount(e.target.value)}
+                        placeholder="100000.00"
+                        className="w-full rounded-2xl border border-slate-300 bg-slate-50/70 px-4 py-2.5 text-sm font-mono font-bold text-slate-900 focus:border-[#0B3D91] focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                      <span className="absolute right-3.5 top-2.5 text-xs font-mono font-bold text-slate-400">
+                        {sourceMeta.currency}
+                      </span>
+                    </div>
+
+                    {/* Quick Amount Shortcuts */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                        Montants rapides :
+                      </span>
+                      {[
+                        "50000.00",
+                        "100000.00",
+                        "250000.00",
+                        "500000.00",
+                        "1000000.00",
+                        "2000000.00",
+                      ].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setWalletAmount(preset)}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-mono text-slate-700 hover:border-[#0B3D91] hover:text-[#0B3D91] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 transition-colors"
+                        >
+                          {parseInt(preset).toLocaleString("fr-FR")}
+                        </button>
+                      ))}
+                      {sourceWallet && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setWalletAmount(sourceWallet.available_amount)
+                          }
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-[#0B3D91] hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/60 dark:text-[#F5B700] transition-colors"
+                        >
+                          Solde Max (100%)
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dynamic Impact & Verification Card */}
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/40 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                      <span>Aperçu de l&apos;impact de trésorerie</span>
+                      <span className="text-[10px] text-slate-400">
+                        Taux de change SasPay appliqué à l&apos;exécution
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {/* Source details */}
+                      <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">
+                          Portefeuille Débité
+                        </p>
+                        <p className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mt-0.5">
+                          <span className="text-base">{sourceMeta.flag}</span>
+                          <span>
+                            {sourceMeta.name} ({sourceMeta.code})
+                          </span>
+                        </p>
+                        <div className="mt-2 text-[11px] space-y-0.5 text-slate-500 dark:text-slate-400">
+                          <p>
+                            Solde actuel :{" "}
+                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {sourceWallet
+                                ? `${formatBalance(
+                                    sourceWallet.available_amount
+                                  )} ${sourceWallet.currency}`
+                                : "Aucun solde initial"}
+                            </span>
+                          </p>
+                          {sourceWallet &&
+                            !isNaN(sourceAmountNum) &&
+                            sourceAmountNum > 0 && (
+                              <p
+                                className={
+                                  isInsufficientBalance
+                                    ? "text-rose-600 font-bold"
+                                    : "text-slate-600 dark:text-slate-400"
+                                }
+                              >
+                                Solde après débit :{" "}
+                                <span className="font-mono font-bold">
+                                  {formatBalance(
+                                    (
+                                      sourceAvailableNum - sourceAmountNum
+                                    ).toFixed(2)
+                                  )}{" "}
+                                  {sourceWallet.currency}
+                                </span>
+                              </p>
+                            )}
+                        </div>
+                      </div>
+
+                      {/* Destination details */}
+                      <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">
+                          Portefeuille Crédité
+                        </p>
+                        <p className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mt-0.5">
+                          <span className="text-base">{destMeta.flag}</span>
+                          <span>
+                            {destMeta.name} ({destMeta.code})
+                          </span>
+                        </p>
+                        <div className="mt-2 text-[11px] space-y-0.5 text-slate-500 dark:text-slate-400">
+                          <p>
+                            Solde actuel :{" "}
+                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {destWallet
+                                ? `${formatBalance(
+                                    destWallet.available_amount
+                                  )} ${destWallet.currency}`
+                                : "Création auto à réception"}
+                            </span>
+                          </p>
+                          {destWallet &&
+                            !isNaN(sourceAmountNum) &&
+                            sourceAmountNum > 0 && (
+                              <p className="text-emerald-600 dark:text-emerald-400">
+                                Solde projeté :{" "}
+                                <span className="font-mono font-bold">
+                                  ~
+                                  {formatBalance(
+                                    (
+                                      parseFloat(destWallet.available_amount) +
+                                      sourceAmountNum
+                                    ).toFixed(2)
+                                  )}{" "}
+                                  {destWallet.currency}
+                                </span>
+                              </p>
+                            )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Conflict & Security Alerts */}
+                    {isSameCountry && (
+                      <div className="flex items-center gap-2 rounded-xl bg-amber-50 p-2.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>
+                          Le pays source et le pays destination doivent être différents.
+                        </span>
+                      </div>
+                    )}
+
+                    {isSourceFrozen && (
+                      <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-2.5 text-xs font-semibold text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span>
+                          Le portefeuille source {walletSource} est actuellement gelé. Les débits sont suspendus.
+                        </span>
+                      </div>
+                    )}
+
+                    {isInsufficientBalance && (
+                      <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-2.5 text-xs font-semibold text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span>
+                          Le montant demandé ({formatBalance(walletAmount)}{" "}
+                          {sourceMeta.currency}) dépasse le solde disponible (
+                          {formatBalance(sourceAvailableNum)} {sourceMeta.currency}).
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      isSameCountry ||
+                      isSourceFrozen ||
+                      isInsufficientBalance ||
+                      !walletAmount ||
+                      parseFloat(walletAmount) <= 0
+                    }
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-[#0B3D91] px-6 py-3 text-xs font-bold text-white hover:bg-[#0B3D91]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm active:scale-98"
+                  >
+                    <ArrowRightLeft className="h-4 w-4 text-[#F5B700]" />
+                    <span>
+                      Exécuter le transfert ({sourceMeta.code} → {destMeta.code} : {walletAmount} {sourceMeta.currency})
+                    </span>
+                  </button>
+                </form>
+              );
+            })()}
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 space-y-3">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">
